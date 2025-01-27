@@ -79,17 +79,22 @@ typedef struct
     MQTTSubscribeInfo_t xSubscribeInfo;
     MQTTAgentSubscribeArgs_t xSubscribeArgs;
 
-
     // State machine state
     MQTTState xConnState;
 
     // Single Observer
     MQTTAgentObserver* pObserver;
 
+    enum CommandState
+    {
+        CMSTATE_COMPLETED
+        CMSTATE_PENDING,
+        CMSTATE_ERROR
+    } xCommandState;
+
 } MQTTAgent;
 
     void mqttagent_init_types(MQTTAgent* self);
-
 
     /***
      * Set credentials
@@ -144,3 +149,9 @@ typedef struct
      * @return
      */
     TaskHandle_t mqttagent_getTask(MQTTAgent* self);
+
+    void mqttagent_mqttPublish(MQTTAgent* self, const char *topic, const char *payload, uint16_t payloadLength);
+
+    void mqttagent_mqttSubscribe(MQTTAgent* self, const char *topic);
+
+    //void mqttagent_commandCallback(MQTTAgentCommandContext_t *pCmdCallbackContext, MQTTAgentReturnInfo_t *pReturnInfo);

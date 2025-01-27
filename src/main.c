@@ -153,13 +153,20 @@ void main_task(void *params) {
     mqttagent_connect(&mqttAgent, mqttTarget, mqttPort, true);
     mqttagent_start(&mqttAgent, TASK_PRIORITY);
 
+
+    char topic[] = "tamatopic";
+    char payload[] = "ihanjokupaska";
+
     while (true) {
         // runTimeStats();
 
         vTaskDelay(3000);
         if (isOnline == true)
         {
-            //mqttAgent.mqttPublish(NULL,NULL);
+            //mqttagent_mqttPublish(&mqttAgent, topic, payload, strlen(payload));    
+
+            mqttagent_mqttSubscribe(&mqttAgent, topic);
+
             isOnline = false;
         }
         if (!wifi_isJoined()) {

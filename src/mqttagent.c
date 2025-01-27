@@ -238,6 +238,7 @@ void mqttagent_init_types(MQTTAgent* self)
     self->pWillTopic = NULL;
     self->xAgentTaskHandle = NULL;
     self->xConnState = Offline;
+    self->xCommandState = CMSTATE_COMPLETED;
 }
 
 /***
@@ -446,81 +447,74 @@ static unsigned int mqttagent_getStackHighWater(MQTTAgent* self)
     else
         return 0;
 }
-/*
 
-void MQTTAgent::mqttPublish(const char *topic, const char *payload) {
-    // MQTTAgentCommandInfo_t commandInfo = { 0 };
-    (void)memset((void *)&xPublishInfo, 0x00, sizeof(xPublishInfo));
-    (void)memset((void *)&xCommandInfo, 0x00, sizeof(xCommandInfo));
+static void mqttagent_commandCallback(MQTTAgentCommandContext_t *pCmdCallbackContext, MQTTAgentReturnInfo_t *pReturnInfo)
+{
+    if (pCmdCallbackContext)
+    {
+        MQTTAgent* self = (MQTTAgent*) pCmdCallbackContext;
+        self->xCommandState = CMSTATE_COMPLETED;        
+    }
+    LogDebug(("Command completed!\n"));
+}
 
+
+void mqttagent_mqttPublish(MQTTAgent* self, const char *topic, const char *payload, uint16_t payloadLength) {    
+    (void)memset((void *)&(self->xPublishInfo), 0x00, sizeof(self->xPublishInfo));
+    (void)memset((void *)&(self->xCommandInfo), 0x00, sizeof(self->xCommandInfo));
+
+    self->xCommandInfo.cmdCompleteCallback = mqttagent_commandCallback;
+    self->xCommandInfo.pCmdCompleteCallbackContext = (MQTTAgentCommandContext_t *)self;    
+    self->xCommandInfo.blockTimeMs = 500;
     
-    // Function for command complete callback.
-    void publishCmdCompleteCb( MQTTAgentCommandContext_t * pCmdCallbackContext,
-                               MQTTAgentReturnInfo_t * pReturnInfo );
-     
-    // Fill the command information.
-    xCommandInfo.cmdCompleteCallback = MQTTAgent::publishCmdCallback;
-    xCommandInfo.blockTimeMs = 500;
 
     // Fill the information for publish operation.
-    xPublishInfo.qos = MQTTQoS1;
-    xPublishInfo.pTopicName = "/some/topic/name";
-    xPublishInfo.topicNameLength = strlen(xPublishInfo.pTopicName);
-    xPublishInfo.pPayload = "Hello World!";
-    xPublishInfo.payloadLength = strlen("Hello World!");
+    self->xPublishInfo.qos = MQTTQoS1;
+    self->xPublishInfo.pTopicName = topic;
+    self->xPublishInfo.topicNameLength = (uint16_t)strlen(self->xPublishInfo.pTopicName);
+    self->xPublishInfo.pPayload = payload;
+    self->xPublishInfo.payloadLength = payloadLength;
 
-    MQTTStatus_t status = MQTTAgent_Publish(&xGlobalMqttAgentContext, &xPublishInfo, &xCommandInfo);
+    LogDebug(("Publishing topic %s\n", self->xPublishInfo.pTopicName));
+
+    MQTTStatus_t status = MQTTAgent_Publish(&(self->xGlobalMqttAgentContext), &(self->xPublishInfo), &(self->xCommandInfo));
 
     if (status == MQTTSuccess) {
-        LogDebug(("Publish success!\n"));
-        // Command to publish message to broker has been queued.
-        // The event of publish operation completion will be notified with
-        // the invocation of the publishCmdCompleteCb().
+        LogDebug(("Publish success!\n"));        
     } else {
         LogDebug(("Publish failure!\n"));
     }
+    self->xCommandState = CMSTATE_PENDING;
 }
-void MQTTAgent::mqttSubscribe(const char *topic) 
+
+void mqttagent_mqttSubscribe(MQTTAgent* self, const char *topic) 
 {
-  
-    (void)memset((void *)&xSubscribeArgs, 0x00, sizeof(xSubscribeArgs));
-    (void)memset((void *)&xSubscribeInfo, 0x00, sizeof(xSubscribeInfo));
-    (void)memset((void *)&xCommandInfo, 0x00, sizeof(xCommandInfo));
+    (void)memset((void *)&self->xSubscribeArgs, 0x00, sizeof(self->xSubscribeArgs));
+    (void)memset((void *)&self->xSubscribeInfo, 0x00, sizeof(self->xSubscribeInfo));
+    (void)memset((void *)&self->xCommandInfo, 0x00, sizeof(self->xCommandInfo));
 
-    // Function for command complete callback.
-    void subscribeCmdCompleteCb(MQTTAgentCommandContext_t * pCmdCallbackContext,
-                                MQTTAgentReturnInfo_t * pReturnInfo);
-
-    // Fill the command information.
-    xCommandInfo.cmdCompleteCallback = MQTTAgent::publishCmdCallback; // fix this
-    xCommandInfo.blockTimeMs = 500;
+        // Fill the command information.
+    self->xCommandInfo.cmdCompleteCallback = mqttagent_commandCallback;
+    self->xCommandInfo.pCmdCompleteCallbackContext = (MQTTAgentCommandContext_t *)self;
+    self->xCommandInfo.blockTimeMs = 500;
 
     // Fill the information for topic filters to subscribe to.
-    xSubscribeInfo.qos = MQTTQoS1;
-    xSubscribeInfo.pTopicFilter = "/foo/bar";
-    xSubscribeInfo.topicFilterLength = strlen("/foo/bar");
-    xSubscribeArgs.pSubscribeInfo = &xSubscribeInfo;
-    xSubscribeArgs.numSubscriptions = 1U;
+    self->xSubscribeInfo.qos = MQTTQoS1;
+    self->xSubscribeInfo.pTopicFilter = topic;
+    self->xSubscribeInfo.topicFilterLength = strlen(topic);
+    self->xSubscribeArgs.pSubscribeInfo = &self->xSubscribeInfo;
+    self->xSubscribeArgs.numSubscriptions = 1U;
 
-    MQTTStatus_t status = MQTTAgent_Subscribe(&xGlobalMqttAgentContext, &xSubscribeArgs, &xCommandInfo);
+    MQTTStatus_t status = MQTTAgent_Subscribe(&self->xGlobalMqttAgentContext, &self->xSubscribeArgs, &self->xCommandInfo);
 
     if (status == MQTTSuccess) {
         // Command to send subscribe request to the server has been queued. Notification
         // about completion of the subscribe operation will be notified to application
         // through invocation of subscribeCmdCompleteCb().
     }
+    else 
+    {
+        // error handling
+    }
+    self->xCommandState = CMSTATE_PENDING;
 }
-
-void MQTTAgent::publishCmdCallback(MQTTAgentCommandContext_t *pCmdCallbackContext,
-                                   MQTTAgentReturnInfo_t *pReturnInfo) {
-    LogDebug(("Publish done!\n"));
-}
-
-void MQTTAgent::subscribeCmdCallback(   MQTTAgentCommandContext_t * pCmdCallbackContext,
-                                        MQTTAgentReturnInfo_t * pReturnInfo )
-{
-    LogDebug(("Publish done!\n"));
-
-}
-
-*/
