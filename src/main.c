@@ -185,6 +185,7 @@ void vLaunch(void) {
 
 int main(void) 
 {
+    timer_hw->dbgpause = 0; 
     stdio_init_all();
     sleep_ms(2000);
     printf("GO\n");
@@ -193,6 +194,8 @@ int main(void)
     const char *rtos_name;
     rtos_name = "FreeRTOS";
     printf("Starting %s on core 0:\n", rtos_name);
+        sleep_ms(1000);
+
     vLaunch();
 
     return 0;

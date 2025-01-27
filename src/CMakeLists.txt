@@ -33,7 +33,6 @@ target_compile_definitions(${NAME} PRIVATE
     MQTT_PASSWD=\"${MQTT_PASSWD_SET}\"
     MQTT_HOST=\"${MQTT_HOST_SET}\"
     MQTT_PORT=${MQTT_PORT_SET}
-    configNUM_CORES=2
 )
 
         

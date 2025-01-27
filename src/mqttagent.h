@@ -143,4 +143,4 @@ typedef struct
      * Get the FreeRTOS task being used
      * @return
      */
-    TaskHandle_t mqttagent_getTask();
+    TaskHandle_t mqttagent_getTask(MQTTAgent* self);
