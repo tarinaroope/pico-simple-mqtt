@@ -23,7 +23,7 @@
 #endif
 
 #ifndef MQTTKEEPALIVETIME
-#define MQTTKEEPALIVETIME 10
+#define MQTTKEEPALIVETIME 60
 #endif
 
 #ifndef MQTT_RECON_DELAY
@@ -32,20 +32,31 @@
 
 typedef struct
 {
-    void (*MQTTOffline)();
-    void (*MQTTOnline)();
-    void (*MQTTSend)();
-    void (*MQTTRecv)();
+    void (*MQTTOffline)(void* context);
+    void (*MQTTOnline)(void* context);
+    void (*MQTTIncomingPublish)(void* context, const char* topic, size_t topic_length, const char* payload, size_t payload_length);
+    void (*MQTTCommandCompleted)(void* context);
+    void* context;
 } MQTTAgentObserver;
 
 // Enumerator used to control the state machine at centre of agent
-typedef enum  { Offline,
-                 TCPReq,
-                 TCPConned,
-                 MQTTReq,
-                 MQTTConned,
-                 MQTTRecon,
-                 Online }MQTTState;
+typedef enum  
+{ 
+    Offline,
+    TCPReq,
+    TCPConned,
+    MQTTReq,
+    MQTTConned,
+    MQTTRecon,
+    Online 
+} MQTTState;
+
+typedef enum 
+{
+    CmStatePending,
+    CmStateReady,
+    CmStateError
+} MQTTCommandState;
 
 typedef struct 
 {
@@ -55,16 +66,15 @@ typedef struct
     // MQTT Server and credentials
     const char *pUser;
     const char *pPasswd;
+    // Device name used in mqtt topics 
     const char *pId;
     const char *pTarget;
     char xMacStr[14];
     uint16_t xPort;
     bool xRecon;
 
-    // MQTT Will object
-   // static const char *WILLTOPICFORMAT;
-    char *pWillTopic;
-  //  static const char *WILLPAYLOAD;
+    const char* pWillTopic;
+    const char* pWillPayload;
 
     // Buffers and queues
     uint8_t xNetworkBuffer[MQTT_AGENT_NETWORK_BUFFER_SIZE];
@@ -85,26 +95,17 @@ typedef struct
     // Single Observer
     MQTTAgentObserver* pObserver;
 
-    enum CommandState
-    {
-        CMSTATE_COMPLETED
-        CMSTATE_PENDING,
-        CMSTATE_ERROR
-    } xCommandState;
+    MQTTCommandState xCommandState;
 
 } MQTTAgent;
 
-    void mqttagent_init_types(MQTTAgent* self);
-
     /***
-     * Set credentials
+     * Set Data
      * @param user - string pointer. Not copied so pointer must remain valid
      * @param passwd - string pointer. Not copied so pointer must remain valid
-     * @param id - string pointer. Not copied so pointer must remain valid. I
-     * f not provide ID will be user
-     * @return lwespOK if succeeds
+     * @param id - string pointer. Not copied so pointer must remain valid.
      */
-    void mqttagent_credentials(MQTTAgent* self, const char *user, const char *passwd, const char *id);
+    void mqttagent_setData(MQTTAgent* self, const char *user, const char *passwd, const char *id, const char *willTopic, const char* willPayload );
 
     /***
      * Connect to mqtt server - Actual connection is done in the state machine so task must be running
@@ -143,15 +144,19 @@ typedef struct
      * @param obs
      */
     void mqttagent_setObserver(MQTTAgent* self, MQTTAgentObserver *obs);
-
+    
     /***
      * Get the FreeRTOS task being used
      * @return
      */
     TaskHandle_t mqttagent_getTask(MQTTAgent* self);
 
-    void mqttagent_mqttPublish(MQTTAgent* self, const char *topic, const char *payload, uint16_t payloadLength);
+    MQTTCommandState mqttagent_getCommandState(MQTTAgent* self);
+    MQTTState mqttagent_getConnectionState(MQTTAgent* self);
 
-    void mqttagent_mqttSubscribe(MQTTAgent* self, const char *topic);
 
-    //void mqttagent_commandCallback(MQTTAgentCommandContext_t *pCmdCallbackContext, MQTTAgentReturnInfo_t *pReturnInfo);
+    bool mqttagent_mqttPublish(MQTTAgent* self, const char *topic, const char *payload);
+
+    bool mqttagent_mqttSubscribe(MQTTAgent* self, const char *topic);
+
+    bool mqttagent_mqttPing(MQTTAgent* self);

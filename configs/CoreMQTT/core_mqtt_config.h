@@ -28,7 +28,7 @@
 #define CORE_MQTT_CONFIG_H_
 
 #define LIBRARY_LOG_NAME "RACKA"
-#define LIBRARY_LOG_LEVEL LOG_DEBUG
+#define LIBRARY_LOG_LEVEL LOG_INFO
 //#define LIBRARY_LOG_LEVEL LOG_ERROR
 //#define SdkLog( X ) printf X
 #include <logging_stack.h>

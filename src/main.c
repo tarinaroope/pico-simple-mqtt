@@ -36,27 +36,44 @@
 #error "MQTT_PORT not defined"
 #endif
 
-// LED PAD defintions
-#define PULSE_LED 0
+#define TEST_PUBLISH_FREQUENCY 50000 // ms
+static const char* WILLTOPIC = "SENSORHUB/STATUS";
+static const char* WILLPAYLOAD = "{'online':0}";
+volatile bool subscribeDone = false;
+
 
 #define TASK_PRIORITY (tskIDLE_PRIORITY + 1UL)
 
-bool isOnline = false;
-
- void MQTTOfflineCallback()
+void MQTTOfflineCallback(void* context)
  {
     printf("Offline callback called\n");
-    isOnline = false;
+    subscribeDone = false;
  }
-void MQTTOnlineCallback()
+void MQTTOnlineCallback(void* context)
 {
     printf("Online callback called\n");
-    isOnline = true;
 }
-  //  void (*MQTTSend)();
-  //  void (*MQTTRecv)();
 
-void runTimeStats() {
+void MQTTCommandCompleteCallback(void* context)
+{
+    printf("Command complete callback called\n");
+
+    TaskHandle_t handle = (TaskHandle_t) context;
+    // Notify the task getting the publish commands
+    xTaskNotify(handle, 0, eNoAction);
+}
+
+void MQTTIncomingCallback(void* context, 
+                        const char* topic, 
+                        size_t topic_length, 
+                        const char* payload, 
+                        size_t payload_length)
+{
+    printf("Incoming publish to topic %.*s, payload %.*s\n", topic_length, topic, payload_length, payload);
+}
+
+void runTimeStats() 
+{
     TaskStatus_t *pxTaskStatusArray;
     volatile UBaseType_t uxArraySize, x;
     unsigned long ulTotalRunTime;
@@ -102,7 +119,8 @@ void runTimeStats() {
            heapStats.xNumberOfSuccessfulFrees);
 }
 
-void main_task(void *params) {
+void main_task(void *params) 
+{
     printf("Main task started\n");
 
     if (wifi_init()) {
@@ -138,14 +156,16 @@ void main_task(void *params) {
     char mqttPwd[] = MQTT_PASSWD;
 
     MQTTAgent mqttAgent;
-    mqttagent_init_types(&mqttAgent);
-    MQTTAgentObserver mqttObs;
+
+    MQTTAgentObserver mqttObs = {0};
+    // Store main task handle for further notifications
+    mqttObs.context = (void*) xTaskGetCurrentTaskHandle();
     mqttObs.MQTTOffline = MQTTOfflineCallback;
     mqttObs.MQTTOnline = MQTTOnlineCallback;
-
+    mqttObs.MQTTCommandCompleted = MQTTCommandCompleteCallback;
+    mqttObs.MQTTIncomingPublish = MQTTIncomingCallback;
     mqttagent_setObserver(&mqttAgent, &mqttObs);
-    mqttagent_credentials(&mqttAgent, mqttUser, mqttPwd, mqttClient);
-
+    mqttagent_setData(&mqttAgent, mqttUser, mqttPwd, mqttClient, WILLTOPIC, WILLPAYLOAD);
     printf("Connecting to: %s(%d)\n", mqttTarget, mqttPort);
     printf("Client id: %.4s...\n", mqttagent_getId(&mqttAgent));
     printf("User id: %.4s...\n", mqttUser);
@@ -154,21 +174,50 @@ void main_task(void *params) {
     mqttagent_start(&mqttAgent, TASK_PRIORITY);
 
 
-    char topic[] = "tamatopic";
-    char payload[] = "ihanjokupaska";
-
+    char test_topic[] = "TEST_TOPIC/TEST";
+    char payload[] = "testpayload";
+    TickType_t lastTimestamp = pdTICKS_TO_MS( xTaskGetTickCount() );
+    TickType_t ttlTimestamp = lastTimestamp;
     while (true) {
-        // runTimeStats();
+       //runTimeStats();
 
-        vTaskDelay(3000);
-        if (isOnline == true)
+        vTaskDelay( pdMS_TO_TICKS( 5000U ) );
+        if (mqttagent_getConnectionState(&mqttAgent) == Online)
         {
-            //mqttagent_mqttPublish(&mqttAgent, topic, payload, strlen(payload));    
+            if (mqttagent_getCommandState(&mqttAgent) != CmStatePending)
+            {
+                TickType_t currentTime = pdTICKS_TO_MS( xTaskGetTickCount() );
 
-            mqttagent_mqttSubscribe(&mqttAgent, topic);
-
-            isOnline = false;
+                if (!subscribeDone)
+                {
+                        printf("Subscribe to %s\n", test_topic);
+                        if (mqttagent_mqttSubscribe(&mqttAgent, test_topic))
+                        {
+                            subscribeDone = true;
+                            ttlTimestamp = currentTime;
+                        }
+                }
+                else
+                {
+                    if ((currentTime - lastTimestamp) > TEST_PUBLISH_FREQUENCY)
+                    {
+                        printf("Publishing topic:%s, payload:%s\n", test_topic, payload);
+                        mqttagent_mqttPublish(&mqttAgent, test_topic, payload);
+                        lastTimestamp = currentTime;
+                        ttlTimestamp = currentTime;
+                    }
+                }
+                // Check if we need to send keepalive ping
+                if ((currentTime - ttlTimestamp) > (MQTTKEEPALIVETIME * 1000 / 2))
+                {
+                    printf("Sending keepalive ping after %d ms of idling\n", currentTime - ttlTimestamp);
+                    mqttagent_mqttPing(&mqttAgent);
+                    ttlTimestamp = currentTime;
+                }
+            }
+            
         }
+      
         if (!wifi_isJoined()) {
             printf("AP Link is down\n");
 
@@ -192,7 +241,7 @@ void vLaunch(void) {
 
 int main(void) 
 {
-    timer_hw->dbgpause = 0; 
+    timer_hw->dbgpause = 0; // hack!
     stdio_init_all();
     sleep_ms(2000);
     printf("GO\n");
