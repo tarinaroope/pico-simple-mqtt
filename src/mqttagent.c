@@ -4,11 +4,11 @@
 
 #include "wifihelper.h"
 #include "topichelper.h"
+#include "mqtttask.h"
 
 /* MQTT Agent ports. */
 #include "freertos_agent_message.h"
 #include "freertos_command_pool.h"
-
 
 /***
  * Callback on when new data is received
@@ -18,7 +18,8 @@
  */
 static void mqttagent_incomingPublishCallback(MQTTAgentContext_t *pMqttAgentContext,
                                         uint16_t packetId,
-                                        MQTTPublishInfo_t *pxPublishInfo) {
+                                        MQTTPublishInfo_t *pxPublishInfo) 
+{
     LogDebug(("MSG(%d,%d) %.*s:%.*s\n",
               pxPublishInfo->topicNameLength,
               pxPublishInfo->payloadLength,
@@ -35,31 +36,6 @@ static void mqttagent_incomingPublishCallback(MQTTAgentContext_t *pMqttAgentCont
                                             pxPublishInfo->topicNameLength,
                                             pxPublishInfo->pPayload,
                                             pxPublishInfo->payloadLength);
-    }
-}
-
-/***
- * Call back function on command (connect, publish, subscribe)
- * @param pCmdCallbackContext
- * @param pReturnInfo
- */
-static void mqttagent_commandCallback(MQTTAgentCommandContext_t *pCmdCallbackContext,
-                                         MQTTAgentReturnInfo_t *pReturnInfo) 
-{
-    LogDebug(("Command callback called\n"));
-   
-    MQTTAgent* self = (MQTTAgent*) pCmdCallbackContext;
-    if (!self)
-    {
-        return;
-    }
-    if (pReturnInfo && pReturnInfo->returnCode == MQTTSuccess)
-    {
-        self->xCommandState = CmStateReady;
-    }
-    else
-    {
-        self->xCommandState = CmStateError;
     }
 }
 
@@ -97,14 +73,12 @@ static void mqttagent_setConnState(MQTTAgent* self, MQTTState s)
     }
 }
 
-
 /***
  * Initialisation code
  * @return
  */
 static MQTTStatus_t mqttagent_init(MQTTAgent* self) 
 {
-    
     tcptrans_init(&(self->xTcpTrans));
     MQTTFixedBuffer_t fixedBuffer = {.pBuffer = self->xNetworkBuffer, .size = MQTT_AGENT_NETWORK_BUFFER_SIZE};
 
@@ -261,19 +235,12 @@ void mqttagent_setData(MQTTAgent* self, const char *user, const char *passwd, co
     self->xConnState = Offline;
     self->pWillTopic = willTopic;
     self->pWillPayload = willPayload;
-    self->xCommandState = CmStateReady;
-}
-
-MQTTCommandState mqttagent_getCommandState(MQTTAgent* self)
-{
-    return self->xCommandState; 
 }
 
 MQTTState mqttagent_getConnectionState(MQTTAgent* self)
 {
     return self->xConnState;
 }
-
 
 /***
  * Connect to mqtt server
@@ -338,7 +305,7 @@ static void mqttagent_run(MQTTAgent* self)
             case Online: {
                 LogDebug(("Starting CMD loop\n"));
 
-                status = MQTTAgent_CommandLoop(&(self->xGlobalMqttAgentContext));
+                status = MQTTAgent_CommandLoop(&self->xGlobalMqttAgentContext);
 
                 // The function returns on either receiving a terminate command,
                 // undergoing network disconnection OR encountering an error.
@@ -397,8 +364,10 @@ static void mqttagent_vTask(void *pvParameters) {
  *  create the vtask, will get picked up by scheduler
  *
  *  */
-void mqttagent_start(MQTTAgent* self, UBaseType_t priority) {
-    if (mqttagent_init(self) == MQTTSuccess) {
+void mqttagent_start(MQTTAgent* self, UBaseType_t priority) 
+{
+    if (mqttagent_init(self) == MQTTSuccess) 
+    {
         xTaskCreate(
             mqttagent_vTask,
             "MQTTAgent",
@@ -473,114 +442,30 @@ static unsigned int mqttagent_getStackHighWater(MQTTAgent* self)
         return 0;
 }
 
-
 bool mqttagent_mqttPublish(MQTTAgent* self, const char *topic, const char *payload) 
 {   
-    (void)memset((void *)&(self->xPublishInfo), 0x00, sizeof(self->xPublishInfo));
-    (void)memset((void *)&(self->xCommandInfo), 0x00, sizeof(self->xCommandInfo));
-
-    self->xCommandInfo.cmdCompleteCallback = mqttagent_commandCallback;
-    self->xCommandInfo.pCmdCompleteCallbackContext = (MQTTAgentCommandContext_t *)self;    
-    self->xCommandInfo.blockTimeMs = 500;
-    
-
+    MQTTPublishInfo_t publishInfo = {0};
     // Fill the information for publish operation.
-    self->xPublishInfo.qos = MQTTQoS1;
-    self->xPublishInfo.pTopicName = topic;
-    self->xPublishInfo.topicNameLength = (uint16_t)strlen(self->xPublishInfo.pTopicName);
-    self->xPublishInfo.pPayload = payload;
-    self->xPublishInfo.payloadLength = (uint16_t)strlen(payload);
-
-    LogDebug(("Publishing topic %s\n", self->xPublishInfo.pTopicName));
-
-/*
-    MQTTAgentCommandInfo_t commandInfo = { 0 };
-    MQTTPublishInfo_t publishInfo = { 0 };
- 
-    commandInfo.blockTimeMs = 500;
-    
-    // Fill the information for publish operation.
-    publishInfo.qos = MQTTQoS1;
     publishInfo.pTopicName = topic;
     publishInfo.topicNameLength = (uint16_t)strlen(topic);
     publishInfo.pPayload = payload;
     publishInfo.payloadLength = (uint16_t)strlen(payload);
 
-    LogDebug(("Publishing topic %s, payload %s, payload length %d\n", publishInfo.pTopicName, publishInfo.pPayload, publishInfo.payloadLength));
-    MQTTStatus_t status = MQTTAgent_Publish(&(self->xGlobalMqttAgentContext), &publishInfo, &commandInfo);
-*/
-    LogDebug(("Publishing topic %s\n", self->xPublishInfo.pTopicName));
-    MQTTStatus_t status = MQTTAgent_Publish(&(self->xGlobalMqttAgentContext), &self->xPublishInfo, &self->xCommandInfo);
-    if (status == MQTTSuccess) {
-        LogDebug(("Publish queued\n"));
-        self->xCommandState = CmStatePending;
-        return true;
-     
-    } else {
-        LogDebug(("Publish failure %d\n", status));
-        self->xCommandState = CmStateError;
-        return false;
-    }
+    return (mqtttask_publish(&self->xGlobalMqttAgentContext, &publishInfo) == MQTTSuccess);
 }
 
 bool mqttagent_mqttSubscribe(MQTTAgent* self, const char *topic) 
 {
-    
-    (void)memset((void *)&self->xSubscribeArgs, 0x00, sizeof(self->xSubscribeArgs));
-    (void)memset((void *)&self->xSubscribeInfo, 0x00, sizeof(self->xSubscribeInfo));
-    (void)memset((void *)&self->xCommandInfo, 0x00, sizeof(self->xCommandInfo));
-
-    // Fill the command information.
-    self->xCommandInfo.cmdCompleteCallback = mqttagent_commandCallback;
-    self->xCommandInfo.pCmdCompleteCallbackContext = (MQTTAgentCommandContext_t *)self;
-    self->xCommandInfo.blockTimeMs = 500;
-
+    MQTTSubscribeInfo_t subscribeInfo = {0};
     // Fill the information for topic filters to subscribe to.
-    self->xSubscribeInfo.qos = MQTTQoS1;
-    self->xSubscribeInfo.pTopicFilter = topic;
-    self->xSubscribeInfo.topicFilterLength = strlen(topic);
-    self->xSubscribeArgs.pSubscribeInfo = &self->xSubscribeInfo;
-    self->xSubscribeArgs.numSubscriptions = 1U;
-
-
-    MQTTStatus_t status = MQTTAgent_Subscribe(&self->xGlobalMqttAgentContext, &self->xSubscribeArgs, &self->xCommandInfo);
-   
-    if (status == MQTTSuccess) 
-    {
-        LogDebug(("Subscribe queued\n"));
-        self->xCommandState = CmStatePending;
-        return true;     
-    } 
-    else 
-    {
-        LogDebug(("Subscribe failure %d\n", status));
-        self->xCommandState = CmStateError;
-        return false;    
-    }
+    subscribeInfo.qos = MQTTQoS1;
+    subscribeInfo.pTopicFilter = topic;
+    subscribeInfo.topicFilterLength = strlen(topic);
+    
+    return (mqtttask_subscribe(&self->xGlobalMqttAgentContext, &subscribeInfo) == MQTTSuccess);
 }
 
 bool mqttagent_mqttPing(MQTTAgent* self)
 {
-    (void)memset((void *)&self->xCommandInfo, 0x00, sizeof(self->xCommandInfo));
-
-    // Fill the command information.
-    self->xCommandInfo.cmdCompleteCallback = mqttagent_commandCallback;
-    self->xCommandInfo.pCmdCompleteCallbackContext = (MQTTAgentCommandContext_t *)self;
-    self->xCommandInfo.blockTimeMs = 500;
-
-    MQTTStatus_t status = MQTTAgent_Ping(&self->xGlobalMqttAgentContext, &self->xCommandInfo);
-
-    if (status == MQTTSuccess) 
-    {
-        LogDebug(("Subscribe queued\n"));
-        self->xCommandState = CmStatePending;
-        return true;     
-    } 
-    else 
-    {
-        LogDebug(("Subscribe failure %d\n", status));
-        self->xCommandState = CmStateError;
-        return false;    
-    }
-
+    return ((mqtttask_ping(&self->xGlobalMqttAgentContext)) == MQTTSuccess);
 }

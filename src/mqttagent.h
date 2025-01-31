@@ -1,18 +1,11 @@
 #pragma once
 
 #include "FreeRTOS.h"
-//#include "MQTTConfig.h"
 #include "tcptransport.h"
-#include "core_mqtt.h"
 #include "core_mqtt_agent.h"
 #include "core_mqtt_config.h"
-
-//extern "C" {
 #include "freertos_agent_message.h"
 #include "freertos_command_pool.h"
-//}
-
-
 
 #ifndef MQTT_AGENT_NETWORK_BUFFER_SIZE
 #define MQTT_AGENT_NETWORK_BUFFER_SIZE 512
@@ -30,12 +23,12 @@
 #define MQTT_RECON_DELAY 10
 #endif
 
+
 typedef struct
 {
     void (*MQTTOffline)(void* context);
     void (*MQTTOnline)(void* context);
     void (*MQTTIncomingPublish)(void* context, const char* topic, size_t topic_length, const char* payload, size_t payload_length);
-    void (*MQTTCommandCompleted)(void* context);
     void* context;
 } MQTTAgentObserver;
 
@@ -50,13 +43,6 @@ typedef enum
     MQTTRecon,
     Online 
 } MQTTState;
-
-typedef enum 
-{
-    CmStatePending,
-    CmStateReady,
-    CmStateError
-} MQTTCommandState;
 
 typedef struct 
 {
@@ -84,19 +70,11 @@ typedef struct
     MQTTAgentContext_t xGlobalMqttAgentContext;
     TaskHandle_t xAgentTaskHandle;
     
-    MQTTPublishInfo_t xPublishInfo;
-    MQTTAgentCommandInfo_t xCommandInfo;
-    MQTTSubscribeInfo_t xSubscribeInfo;
-    MQTTAgentSubscribeArgs_t xSubscribeArgs;
-
     // State machine state
     MQTTState xConnState;
 
     // Single Observer
     MQTTAgentObserver* pObserver;
-
-    MQTTCommandState xCommandState;
-
 } MQTTAgent;
 
     /***
@@ -151,9 +129,7 @@ typedef struct
      */
     TaskHandle_t mqttagent_getTask(MQTTAgent* self);
 
-    MQTTCommandState mqttagent_getCommandState(MQTTAgent* self);
     MQTTState mqttagent_getConnectionState(MQTTAgent* self);
-
 
     bool mqttagent_mqttPublish(MQTTAgent* self, const char *topic, const char *payload);
 

@@ -6,7 +6,7 @@ set(NAME pico-simple-mqtt) # <-- Name your project/executable here!
 # Pull in Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
-project(pico_led_control C CXX ASM)
+project(pico-simple-mqtt C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(PICO_BOARD pico_w) # Set the board used
@@ -41,3 +41,4 @@ include(FreeRTOS_core_MQTT_Agent.cmake) # Configure FreeRTOS coreMQTT Agent
 #include(twinThingPicoW_import.cmake) # Import twinThingPicoW lib
 
 add_subdirectory(src) # Source code dir
+add_subdirectory(test)

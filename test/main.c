@@ -8,6 +8,10 @@
 #include "lwip/ip4_addr.h"
 #include "pico/cyw43_arch.h"
 
+#include "pico/multicore.h"
+#include "pico/util/queue.h"
+
+
 #include "lwip/sockets.h"
 #include "pico/stdlib.h"
 #include "task.h"
@@ -36,13 +40,21 @@
 #error "MQTT_PORT not defined"
 #endif
 
-#define TEST_PUBLISH_FREQUENCY 50000 // ms
+#define TEST_PUBLISH_FREQUENCY 5000 // ms
 static const char* WILLTOPIC = "SENSORHUB/STATUS";
 static const char* WILLPAYLOAD = "{'online':0}";
 volatile bool subscribeDone = false;
 
 
 #define TASK_PRIORITY (tskIDLE_PRIORITY + 1UL)
+
+typedef struct
+{
+    uint8_t sensorId;
+    uint8_t sensorValue;
+} queue_entry_t;
+
+queue_t message_queue;
 
 void MQTTOfflineCallback(void* context)
  {
@@ -52,15 +64,6 @@ void MQTTOfflineCallback(void* context)
 void MQTTOnlineCallback(void* context)
 {
     printf("Online callback called\n");
-}
-
-void MQTTCommandCompleteCallback(void* context)
-{
-    printf("Command complete callback called\n");
-
-    TaskHandle_t handle = (TaskHandle_t) context;
-    // Notify the task getting the publish commands
-    xTaskNotify(handle, 0, eNoAction);
 }
 
 void MQTTIncomingCallback(void* context, 
@@ -121,8 +124,6 @@ void runTimeStats()
 
 void main_task(void *params) 
 {
-    printf("Main task started\n");
-
     if (wifi_init()) {
         printf("Wifi Controller Initialised\n");
     } else {
@@ -162,7 +163,6 @@ void main_task(void *params)
     mqttObs.context = (void*) xTaskGetCurrentTaskHandle();
     mqttObs.MQTTOffline = MQTTOfflineCallback;
     mqttObs.MQTTOnline = MQTTOnlineCallback;
-    mqttObs.MQTTCommandCompleted = MQTTCommandCompleteCallback;
     mqttObs.MQTTIncomingPublish = MQTTIncomingCallback;
     mqttagent_setObserver(&mqttAgent, &mqttObs);
     mqttagent_setData(&mqttAgent, mqttUser, mqttPwd, mqttClient, WILLTOPIC, WILLPAYLOAD);
@@ -180,28 +180,36 @@ void main_task(void *params)
     TickType_t ttlTimestamp = lastTimestamp;
     while (true) {
        //runTimeStats();
+        printf("Publishing to %s, payload %s\n", test_topic, payload);
+
+        mqttagent_mqttPublish(&mqttAgent, test_topic, payload);
+                printf("Publishing to %s, payload %s\n", test_topic, payload);
+
+        mqttagent_mqttPublish(&mqttAgent, test_topic, payload);
+                printf("Publishing to %s, payload %s\n", test_topic, payload);
+
+        mqttagent_mqttPublish(&mqttAgent, test_topic, payload);
+
+
 
         vTaskDelay( pdMS_TO_TICKS( 5000U ) );
+  
         if (mqttagent_getConnectionState(&mqttAgent) == Online)
         {
-            if (mqttagent_getCommandState(&mqttAgent) != CmStatePending)
-            {
                 TickType_t currentTime = pdTICKS_TO_MS( xTaskGetTickCount() );
 
                 if (!subscribeDone)
                 {
                         printf("Subscribe to %s\n", test_topic);
-                        if (mqttagent_mqttSubscribe(&mqttAgent, test_topic))
-                        {
-                            subscribeDone = true;
-                            ttlTimestamp = currentTime;
-                        }
+                        mqttagent_mqttSubscribe(&mqttAgent, test_topic);
+                        subscribeDone = true;
+                        ttlTimestamp = currentTime;   
                 }
                 else
                 {
                     if ((currentTime - lastTimestamp) > TEST_PUBLISH_FREQUENCY)
                     {
-                        printf("Publishing topic:%s, payload:%s\n", test_topic, payload);
+                        printf("Publishing to %s, payload %s\n", test_topic, payload);
                         mqttagent_mqttPublish(&mqttAgent, test_topic, payload);
                         lastTimestamp = currentTime;
                         ttlTimestamp = currentTime;
@@ -213,9 +221,7 @@ void main_task(void *params)
                     printf("Sending keepalive ping after %d ms of idling\n", currentTime - ttlTimestamp);
                     mqttagent_mqttPing(&mqttAgent);
                     ttlTimestamp = currentTime;
-                }
-            }
-            
+                }    
         }
       
         if (!wifi_isJoined()) {
@@ -243,16 +249,20 @@ int main(void)
 {
     timer_hw->dbgpause = 0; // hack!
     stdio_init_all();
-    sleep_ms(2000);
-    printf("GO\n");
+
+    sleep_ms(1000);
+    
+    
 
     /* Configure the hardware ready to run the demo. */
+    
     const char *rtos_name;
     rtos_name = "FreeRTOS";
     printf("Starting %s on core 0:\n", rtos_name);
-        sleep_ms(1000);
+    sleep_ms(1000);
 
     vLaunch();
+
 
     return 0;
 }
