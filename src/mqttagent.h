@@ -59,8 +59,8 @@ typedef struct
     uint16_t xPort;
     bool xRecon;
 
-    const char* pWillTopic;
-    const char* pWillPayload;
+    char* pWillTopic;
+    char* pWillPayload;
 
     // Buffers and queues
     uint8_t xNetworkBuffer[MQTT_AGENT_NETWORK_BUFFER_SIZE];

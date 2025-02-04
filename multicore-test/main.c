@@ -11,11 +11,10 @@
 #include "pico/multicore.h"
 #include "pico/util/queue.h"
 
-
 #include "lwip/sockets.h"
 #include "pico/stdlib.h"
 #include "task.h"
-#include "mqttagent.h"
+#include "mqttthing.h"
 
 // Check these definitions where added from the makefile
 #ifndef WIFI_SSID
@@ -41,10 +40,17 @@
 #endif
 
 #define TEST_PUBLISH_FREQUENCY 5000 // ms
-static const char* WILLTOPIC = "SENSORHUB/STATUS";
-static const char* WILLPAYLOAD = "{'online':0}";
 
 #define TASK_PRIORITY (tskIDLE_PRIORITY + 1UL)
+
+const char *WIFISSID = WIFI_SSID;
+const char *WIFIPASSWORD = WIFI_PASSWORD;
+const char *MQTTHOST = MQTT_HOST;
+const int MQTTPORT = MQTT_PORT;
+const char *MQTTUSER = MQTT_USER;
+const char *MQTTPASSWD = MQTT_PASSWD;
+const char *TOPICROOT = "SENSOR";
+const char *TOPICTEMPERATURE = "TEMPERATURE";
 
 typedef struct
 {
@@ -54,123 +60,105 @@ typedef struct
 
 queue_t message_queue;
 
-void MQTTOfflineCallback(void* context)
- {
-    printf("Offline callback called\n");
- }
-void MQTTOnlineCallback(void* context)
+void runTimeStats()
 {
-    printf("Online callback called\n");
-}
+    TaskStatus_t *pxTaskStatusArray;
+    volatile UBaseType_t uxArraySize, x;
+    unsigned long ulTotalRunTime;
 
-void MQTTCommandCompleteCallback(void* context)
-{
-    printf("Command complete callback called\n");
-}
+    /* Take a snapshot of the number of tasks in case it changes while this
+    function is executing. */
+    uxArraySize = uxTaskGetNumberOfTasks();
+    printf("Number of tasks %d\n", uxArraySize);
 
-void MQTTIncomingCallback(void* context, 
-                        const char* topic, 
-                        size_t topic_length, 
-                        const char* payload, 
-                        size_t payload_length)
-{
-    printf("Incoming publish to topic %.*s, payload %.*s\n", topic_length, topic, payload_length, payload);
-}
+    /* Allocate a TaskStatus_t structure for each task.  An array could be
+    allocated statically at compile time. */
+    pxTaskStatusArray = (TaskStatus_t *)pvPortMalloc(uxArraySize * sizeof(TaskStatus_t));
 
-void main_task(void *params) 
-{
-    if (wifi_init()) {
-        LogDebug("Wifi Controller Initialised\n");
-    } else {
-        LogError("Failed to initialise controller\n");
-        return;
+    if (pxTaskStatusArray != NULL)
+    {
+        /* Generate raw status information about each task. */
+        uxArraySize = uxTaskGetSystemState(pxTaskStatusArray,
+                                           uxArraySize,
+                                           &ulTotalRunTime);
+
+        /* For each populated position in the pxTaskStatusArray array,
+        format the raw data as human readable ASCII data. */
+        for (x = 0; x < uxArraySize; x++)
+        {
+            printf("Task: %d \t cPri:%d \t bPri:%d \t hw:%d \t%s\n",
+                   pxTaskStatusArray[x].xTaskNumber,
+                   pxTaskStatusArray[x].uxCurrentPriority,
+                   pxTaskStatusArray[x].uxBasePriority,
+                   pxTaskStatusArray[x].usStackHighWaterMark,
+                   pxTaskStatusArray[x].pcTaskName);
+        }
+
+        /* The array is no longer needed, free the memory it consumes. */
+        vPortFree(pxTaskStatusArray);
+    }
+    else
+    {
+        printf("Failed to allocate space for stats\n");
     }
 
-    LogInfo("Connecting to WiFi... %s \n", WIFI_SSID);
+    HeapStats_t heapStats;
+    vPortGetHeapStats(&heapStats);
+    printf("HEAP avl: %d, blocks %d, alloc: %d, free: %d\n",
+           heapStats.xAvailableHeapSpaceInBytes,
+           heapStats.xNumberOfFreeBlocks,
+           heapStats.xNumberOfSuccessfulAllocations,
+           heapStats.xNumberOfSuccessfulFrees);
+}
 
-    if (wifi_join(WIFI_SSID, WIFI_PASSWORD)) {
-        LogInfo("Connect to Wifi\n");
-    } else {
-        LogError("Failed to connect to Wifi \n");
-    }
+void main_task(void *params)
+{
+    MQTTThing thing;
 
-    // Setup for MQTT Connection
+     // Setup for MQTT Connection
     char mqttTarget[] = MQTT_HOST;
     int mqttPort = MQTT_PORT;
     char mqttClient[] = MQTT_CLIENT;
     char mqttUser[] = MQTT_USER;
     char mqttPwd[] = MQTT_PASSWD;
 
-    MQTTAgent mqttAgent;
-
-    MQTTAgentObserver mqttObs = {0};
-    // Store main task handle for further notifications
-    mqttObs.context = (void*) xTaskGetCurrentTaskHandle();
-    mqttObs.MQTTOffline = MQTTOfflineCallback;
-    mqttObs.MQTTOnline = MQTTOnlineCallback;
-    mqttObs.MQTTCommandCompleted = MQTTCommandCompleteCallback;
-    mqttObs.MQTTIncomingPublish = MQTTIncomingCallback;
-    mqttagent_setObserver(&mqttAgent, &mqttObs);
-    mqttagent_setData(&mqttAgent, mqttUser, mqttPwd, mqttClient, WILLTOPIC, WILLPAYLOAD);
-    LogDebug("Connecting to: %s(%d)\n", mqttTarget, mqttPort);
-    LogDebug("Client id: %.4s...\n", mqttagent_getId(&mqttAgent));
-    LogDebug("User id: %.4s...\n", mqttUser);
-
-    mqttagent_connect(&mqttAgent, mqttTarget, mqttPort, true);
-    mqttagent_start(&mqttAgent, TASK_PRIORITY);
-
-    TickType_t ttlTimestamp = pdTICKS_TO_MS( xTaskGetTickCount() );
-
-    while (true) 
+    if (!mqttthing_init(&thing, WIFISSID, WIFIPASSWORD, MQTTHOST, MQTTPORT, MQTTUSER, MQTTPASSWD))
     {
-        if (mqttagent_getConnectionState(&mqttAgent) == Online)
-        {
-            queue_entry_t entry = {0};
-
-            bool messageToSend = queue_try_remove(&message_queue, &entry);
-            while (messageToSend)
-            {
-                // Todo proper preparing of message
-                        char topic[40];
-                        char payload[20];
-                        sprintf(topic,"TOPIC/%d/UPDATE", cpEntry.sensorId);
-                        sprintf(payload,"payload:%d", cpEntry.sensorValue);
-                        printf("Publishing to %s, payload %s\n", topic, payload);
-                        mqttagent_mqttPublish(&mqttAgent, topic, payload);
-                        lastTimestamp = currentTime;
-                        ttlTimestamp = currentTime;
-                // Check if we have more messages to send
-                messageToSend = queue_try_remove(&message_queue, &entry);  
-            }
-            // Check if we need to send keepalive ping
-            TickType_t currentTime = pdTICKS_TO_MS( xTaskGetTickCount() );
-
-            if ((currentTime - ttlTimestamp) > (MQTTKEEPALIVETIME * 1000 / 2))
-            {
-                LogDebug("Sending keepalive ping after %d ms of idling\n", currentTime - ttlTimestamp);
-                mqttagent_mqttPing(&mqttAgent);
-                ttlTimestamp = currentTime;
-            }    
-        }
-      
-        if (!wifi_isJoined()) 
-        {
-            LogError("AP Link is down\n");
-
-            if (wifi_join(WIFI_SSID, WIFI_PASSWORD)) {
-                LogInfo("Connect to Wifi\n");
-            } else {
-                LogError("Failed to connect to Wifi \n");
-            }
-        }
+        LogError(("Failed to initialize MQTTThing\n"));
+        return;
     }
-    vTaskDelay( pdMS_TO_TICKS( 2000U ) );
+
+    mqttthing_connectLoop(&thing);
+
+    char topicBuffer[40];
+    char payloadBuffer[10];
+    queue_entry_t entry = {0};
+    int i = 0;
+    while (true)
+    {
+        if (i ==9)
+        {
+            i = 0;
+            runTimeStats();
+        }
+        if (queue_try_remove(&message_queue, &entry))
+        {
+            sprintf(topicBuffer, "%s/%s/%d", TOPICROOT, TOPICTEMPERATURE, entry.sensorId);
+            sprintf(payloadBuffer, "%d", entry.sensorValue);
+            printf("Publishing to %s, payload %s\n", topicBuffer, payloadBuffer);
+            mqttthing_publish(&thing, topicBuffer, payloadBuffer);
+        }
+        vTaskDelay(pdTICKS_TO_MS(1000U));
+        i++;
+    }
+    
 }
 
-void vLaunch(void) {
+void vLaunch(void)
+{
     TaskHandle_t task;
 
-    xTaskCreate(main_task, "MainThread", 2048, NULL, TASK_PRIORITY, &task);
+    xTaskCreate(main_task, "MainThread", 512, NULL, TASK_PRIORITY, &task);
 
     /* Start the tasks and timer running. */
     vTaskStartScheduler();
@@ -178,7 +166,7 @@ void vLaunch(void) {
 
 void core1_main(void)
 {
-     /* Configure the hardware ready to run the demo. */
+    /* Configure the hardware ready to run the demo. */
     const char *rtos_name;
     rtos_name = "FreeRTOS";
     printf("Starting %s on core 1:\n", rtos_name);
@@ -187,38 +175,27 @@ void core1_main(void)
     vLaunch();
 }
 
-int main(void) 
+int main(void)
 {
     timer_hw->dbgpause = 0; // hack!
     stdio_init_all();
 
     sleep_ms(1000);
-    
+
     queue_init(&message_queue, sizeof(queue_entry_t), 10);
 
     multicore_launch_core1(core1_main);
 
-    sleep_ms(1000);
+    sleep_ms(20000);
     queue_entry_t entry = {0};
     uint8_t i = 1;
     while (1)
     {
         entry.sensorId = i;
-        entry.sensorValue = i+2;
+        entry.sensorValue = i + 2;
         queue_try_add(&message_queue, &entry);
         sleep_ms(5000);
         i++;
     }
-
-    /* Configure the hardware ready to run the demo. */
-    /*
-    const char *rtos_name;
-    rtos_name = "FreeRTOS";
-    printf("Starting %s on core 0:\n", rtos_name);
-    sleep_ms(1000);
-
-    vLaunch();
-*/
-
     return 0;
 }

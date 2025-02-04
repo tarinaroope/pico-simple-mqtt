@@ -8,6 +8,7 @@ static void mqtttask_commandCallback(MQTTAgentCommandContext_t *pCmdCallbackCont
 {
     TaskHandle_t* taskHandle = (TaskHandle_t*) pCmdCallbackContext;
     // No return info checking at this point - just blindly go forward.
+    printf("Callback called %d\n", taskHandle);
     xTaskNotifyGive(*taskHandle);
 }
 
@@ -81,14 +82,14 @@ static void mqtttask_vTaskSubscribe(void *pvParameters)
 
     // Wait until callback notifies this task to continue
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-
     vPortFree((void *)topic);
 
     vTaskDelete(NULL);
 }
 
-static void mqtttask_vTaskPublish(void *pvParameters) 
+void mqtttask_vTaskPublish(void *pvParameters) 
 {
+    
     MQTTTaskParameters *params = (MQTTTaskParameters *)pvParameters;
 
     // Create space for the paramaters
@@ -115,6 +116,7 @@ static void mqtttask_vTaskPublish(void *pvParameters)
     // Publish and wait for the callback to be called. The callback will notify this task to continue.
     LogDebug(("Publishing topic %.*s\n", publishInfo.topicNameLength, publishInfo.pTopicName));
     LogDebug(("Publishing payload %.*s\n", publishInfo.payloadLength, publishInfo.pPayload));
+    
     MQTTStatus_t status = MQTTAgent_Publish(agentContext, &publishInfo, &commandInfo);
     if (status != MQTTSuccess) 
     {
@@ -125,7 +127,7 @@ static void mqtttask_vTaskPublish(void *pvParameters)
 
     // Wait until callback notifies this task to continue
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-
+   
     vPortFree((void *)topic);
     vPortFree((void *)payload);
 
@@ -158,6 +160,7 @@ MQTTStatus_t mqtttask_publish(MQTTAgentContext_t* mqttAgentContext, MQTTPublishI
     // Wait until publish task has copied the parameters and this task gets notified
     uint32_t ulNotificationValue;
     xTaskNotifyWait(0x00, ULONG_MAX, &ulNotificationValue, portMAX_DELAY);
+
     return (MQTTStatus_t) ulNotificationValue;
 }
 

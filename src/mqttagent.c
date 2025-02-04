@@ -39,6 +39,13 @@ static void mqttagent_incomingPublishCallback(MQTTAgentContext_t *pMqttAgentCont
     }
 }
 
+static void mqttagent_commandCallback(MQTTAgentCommandContext_t *pCmdCallbackContext,
+                                         MQTTAgentReturnInfo_t *pReturnInfo)
+{
+    TaskHandle_t* taskHandle = (TaskHandle_t*) pCmdCallbackContext;
+    xTaskNotify(*taskHandle, pReturnInfo->returnCode, eSetValueWithOverwrite);
+}
+
 /***
  * Set the connection state variable
  * @param s
@@ -226,15 +233,24 @@ void mqttagent_setData(MQTTAgent* self, const char *user, const char *passwd, co
     } else {
         self->pId = self->pUser;
     }
-    LogInfo(("MQTT Credentials Id=%s, usr=%s\n", self->pId, self->pUser));
+    LogDebug(("MQTT Credentials Id=%s, usr=%s\n", self->pId, self->pUser));
 
     self->pTarget = NULL;
     self->xPort = 1883;
     self->xRecon = false;
     self->xAgentTaskHandle = NULL;
     self->xConnState = Offline;
-    self->pWillTopic = willTopic;
-    self->pWillPayload = willPayload;
+
+    self->pWillTopic = pvPortMalloc(strlen(willTopic) + 1);
+    self->pWillPayload = pvPortMalloc(strlen(willPayload) + 1);
+    if (self->pWillTopic == NULL || self->pWillPayload == NULL)
+    {
+        LogError(("Failed to allocate memory for will topic and payload"));
+        return;
+    }
+
+    strcpy(self->pWillTopic, willTopic);
+    strcpy(self->pWillPayload, willPayload);
 }
 
 MQTTState mqttagent_getConnectionState(MQTTAgent* self)
@@ -418,8 +434,17 @@ void mqttagent_stop(MQTTAgent* self)
         vTaskDelete(self->xAgentTaskHandle);
         self->xAgentTaskHandle = NULL;
     }
+    if (self->pWillTopic != NULL) 
+    {
+        vPortFree(self->pWillTopic);
+        self->pWillTopic = NULL;
+    }
+    if (self->pWillPayload != NULL) 
+    {
+        vPortFree(self->pWillPayload);
+        self->pWillPayload = NULL;
+    }
 }
-
 
 /***
  * Get the FreeRTOS task being used
@@ -444,18 +469,93 @@ static unsigned int mqttagent_getStackHighWater(MQTTAgent* self)
 
 bool mqttagent_mqttPublish(MQTTAgent* self, const char *topic, const char *payload) 
 {   
+    /*
     MQTTPublishInfo_t publishInfo = {0};
     // Fill the information for publish operation.
     publishInfo.pTopicName = topic;
     publishInfo.topicNameLength = (uint16_t)strlen(topic);
     publishInfo.pPayload = payload;
     publishInfo.payloadLength = (uint16_t)strlen(payload);
-
+    
     return (mqtttask_publish(&self->xGlobalMqttAgentContext, &publishInfo) == MQTTSuccess);
+    */
+
+   // Create space for the paramaters
+    
+    MQTTAgentCommandInfo_t commandInfo = {0};
+    commandInfo.cmdCompleteCallback = mqttagent_commandCallback;
+    TaskHandle_t currentTaskHandle = xTaskGetCurrentTaskHandle();
+    commandInfo.pCmdCompleteCallbackContext = (MQTTAgentCommandContext_t *) &currentTaskHandle;    
+    commandInfo.blockTimeMs = 500;
+
+    MQTTPublishInfo_t publishInfo = {0};
+    publishInfo.qos = MQTTQoS1;
+    publishInfo.pTopicName = topic;
+    publishInfo.topicNameLength = (uint16_t)strlen(topic);
+    publishInfo.pPayload = payload;
+    publishInfo.payloadLength = (uint16_t)strlen(payload);
+
+
+    // Publish and wait for the callback to be called. The callback will notify this task to continue.
+  //  LogDebug(("Publishing topic %.*s\n", publishInfo.topicNameLength, publishInfo.pTopicName));
+   // LogDebug(("Publishing payload %.*s\n", publishInfo.payloadLength, publishInfo.pPayload));
+    
+    MQTTStatus_t status = MQTTAgent_Publish(&self->xGlobalMqttAgentContext, &publishInfo, &commandInfo);
+    if (status != MQTTSuccess) 
+    {
+        LogError(("Failed to publish message, error %d\n", status));
+        return false;
+    }
+    // Parent task can now proceed. Pass the status.
+   // xTaskNotify(params->parentTask, (uint32_t) status, eSetValueWithOverwrite);
+
+    // Wait until callback notifies this task to continue
+    uint32_t ulNotificationValue;
+    xTaskNotifyWait(0, 0, &ulNotificationValue, portMAX_DELAY);
+    //ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    return ( (MQTTStatus_t)ulNotificationValue == MQTTSuccess);
+    
+  //  vPortFree((void *)topic);
+  //  vPortFree((void *)payload);
+      // Parent task can now proceed. Pass the status.
+   // xTaskNotify(params->parentTask, (uint32_t) status, eSetValueWithOverwrite);
+
+  //  vTaskDelay(pdTICKS_TO_MS(1000U));
+  //  printf("delete task\n");
 }
 
 bool mqttagent_mqttSubscribe(MQTTAgent* self, const char *topic) 
 {
+    MQTTAgentCommandInfo_t commandInfo = {0};
+    commandInfo.cmdCompleteCallback = mqttagent_commandCallback;
+    TaskHandle_t currentTaskHandle = xTaskGetCurrentTaskHandle();
+    commandInfo.pCmdCompleteCallbackContext = (MQTTAgentCommandContext_t *) &currentTaskHandle;    
+    commandInfo.blockTimeMs = 500;
+
+    MQTTSubscribeInfo_t subscribeInfo = {0};
+
+    // Fill the information for topic filters to subscribe to.
+    subscribeInfo.qos = MQTTQoS1;
+    subscribeInfo.pTopicFilter = topic;
+    subscribeInfo.topicFilterLength = (uint16_t) strlen(topic);
+
+    MQTTAgentSubscribeArgs_t subscribeArgs = {0};
+    subscribeArgs.pSubscribeInfo = &subscribeInfo;
+    subscribeArgs.numSubscriptions = 1U;
+    
+    // Publish and wait for the callback to be called. The callback will notify this task to continue.
+    LogDebug(("Subscribing to topic %.*s\n", subscribeInfo.topicFilterLength, subscribeInfo.pTopicFilter));
+    MQTTStatus_t status = MQTTAgent_Subscribe(&self->xGlobalMqttAgentContext, &subscribeArgs, &commandInfo);
+    if (status != MQTTSuccess) 
+    {
+        LogError(("Failed to subscribe to topic, error %d\n", status));
+    }
+       
+    uint32_t ulNotificationValue;
+    xTaskNotifyWait(0, 0, &ulNotificationValue, portMAX_DELAY);
+    return ( (MQTTStatus_t)ulNotificationValue == MQTTSuccess);
+    
+/*
     MQTTSubscribeInfo_t subscribeInfo = {0};
     // Fill the information for topic filters to subscribe to.
     subscribeInfo.qos = MQTTQoS1;
@@ -463,9 +563,28 @@ bool mqttagent_mqttSubscribe(MQTTAgent* self, const char *topic)
     subscribeInfo.topicFilterLength = strlen(topic);
     
     return (mqtttask_subscribe(&self->xGlobalMqttAgentContext, &subscribeInfo) == MQTTSuccess);
+    */
 }
 
 bool mqttagent_mqttPing(MQTTAgent* self)
 {
-    return ((mqtttask_ping(&self->xGlobalMqttAgentContext)) == MQTTSuccess);
+    MQTTAgentCommandInfo_t commandInfo = {0};
+    commandInfo.cmdCompleteCallback = mqttagent_commandCallback;
+    TaskHandle_t currentTaskHandle = xTaskGetCurrentTaskHandle();
+    commandInfo.pCmdCompleteCallbackContext = (MQTTAgentCommandContext_t *) &currentTaskHandle;    
+    commandInfo.blockTimeMs = 500;
+
+    // Publish and wait for the callback to be called. The callback will notify this task to continue.
+    LogDebug(("Sending ping...\n"));
+
+    MQTTStatus_t status = MQTTAgent_Ping(&self->xGlobalMqttAgentContext, &commandInfo);
+    if (status != MQTTSuccess) 
+    {
+        LogError(("Failed to send ping, error %d\n", status));
+    }
+    uint32_t ulNotificationValue;
+    xTaskNotifyWait(0, 0, &ulNotificationValue, portMAX_DELAY);
+    return ( (MQTTStatus_t)ulNotificationValue == MQTTSuccess);
+    
+    //return ((mqttagent_ping(&self->xGlobalMqttAgentContext)) == MQTTSuccess);
 }

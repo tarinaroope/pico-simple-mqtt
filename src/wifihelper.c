@@ -2,6 +2,8 @@
 #include "pico/cyw43_arch.h"
 #include "pico/util/datetime.h"
 #include "task.h"
+#include "core_mqtt_config.h"
+
 #include "wifihelper.h"
 
 /***
@@ -21,20 +23,20 @@ bool wifi_init() {
     return true;
 }
 
-bool wifi_join(const char *sid, const char *password) {
+bool wifi_join(const char *sid, const char *password, bool noGiveUp) {
     cyw43_arch_enable_sta_mode();
-    printf("Connecting to WiFi... %s \n", WIFI_SSID);
+    LogInfo(("Connecting to WiFi... %s \n", WIFI_SSID));
 
     // Loop trying to connect to Wifi
     uint8_t retries = 3;
     int r = -1;
     uint8_t attempts = 0;
     while (r < 0) {
-        attempts++;
+        (noGiveUp == true) ? attempts++ : 0;
         r = cyw43_arch_wifi_connect_timeout_ms(sid, password, CYW43_AUTH_WPA2_AES_PSK, 60000);
 
         if (r) {
-            printf("Failed to join AP.\n");
+            LogError(("Failed to join AP.\n"));
             if (attempts >= retries) {
                 return false;
             }

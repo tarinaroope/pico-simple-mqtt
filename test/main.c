@@ -11,11 +11,10 @@
 #include "pico/multicore.h"
 #include "pico/util/queue.h"
 
-
 #include "lwip/sockets.h"
 #include "pico/stdlib.h"
 #include "task.h"
-#include "mqttagent.h"
+#include "mqttthing.h"
 
 // Check these definitions where added from the makefile
 #ifndef WIFI_SSID
@@ -41,41 +40,29 @@
 #endif
 
 #define TEST_PUBLISH_FREQUENCY 5000 // ms
-static const char* WILLTOPIC = "SENSORHUB/STATUS";
-static const char* WILLPAYLOAD = "{'online':0}";
-volatile bool subscribeDone = false;
 
+const char *WIFISSID = WIFI_SSID;
+const char *WIFIPASSWORD = WIFI_PASSWORD;
+const char *MQTTHOST = MQTT_HOST;
+const int MQTTPORT = MQTT_PORT;
+const char *MQTTUSER = MQTT_USER;
+const char *MQTTPASSWD = MQTT_PASSWD;
+const char *TOPICROOT = "SENSOR";
+const char *TOPICTEMPERATURE = "TEMPERATURE";
+
+volatile bool subscribeDone = false;
 
 #define TASK_PRIORITY (tskIDLE_PRIORITY + 1UL)
 
-typedef struct
+void incomingPublish (const char* topic, 
+                                size_t topic_length, 
+                                const char* payload, 
+                                size_t payload_length)
 {
-    uint8_t sensorId;
-    uint8_t sensorValue;
-} queue_entry_t;
-
-queue_t message_queue;
-
-void MQTTOfflineCallback(void* context)
- {
-    printf("Offline callback called\n");
-    subscribeDone = false;
- }
-void MQTTOnlineCallback(void* context)
-{
-    printf("Online callback called\n");
+    printf("Incoming publish %.*s:%.*s\n", topic_length, topic, payload_length, payload);
 }
 
-void MQTTIncomingCallback(void* context, 
-                        const char* topic, 
-                        size_t topic_length, 
-                        const char* payload, 
-                        size_t payload_length)
-{
-    printf("Incoming publish to topic %.*s, payload %.*s\n", topic_length, topic, payload_length, payload);
-}
-
-void runTimeStats() 
+void runTimeStats()
 {
     TaskStatus_t *pxTaskStatusArray;
     volatile UBaseType_t uxArraySize, x;
@@ -90,7 +77,8 @@ void runTimeStats()
     allocated statically at compile time. */
     pxTaskStatusArray = (TaskStatus_t *)pvPortMalloc(uxArraySize * sizeof(TaskStatus_t));
 
-    if (pxTaskStatusArray != NULL) {
+    if (pxTaskStatusArray != NULL)
+    {
         /* Generate raw status information about each task. */
         uxArraySize = uxTaskGetSystemState(pxTaskStatusArray,
                                            uxArraySize,
@@ -98,7 +86,8 @@ void runTimeStats()
 
         /* For each populated position in the pxTaskStatusArray array,
         format the raw data as human readable ASCII data. */
-        for (x = 0; x < uxArraySize; x++) {
+        for (x = 0; x < uxArraySize; x++)
+        {
             printf("Task: %d \t cPri:%d \t bPri:%d \t hw:%d \t%s\n",
                    pxTaskStatusArray[x].xTaskNumber,
                    pxTaskStatusArray[x].uxCurrentPriority,
@@ -109,7 +98,9 @@ void runTimeStats()
 
         /* The array is no longer needed, free the memory it consumes. */
         vPortFree(pxTaskStatusArray);
-    } else {
+    }
+    else
+    {
         printf("Failed to allocate space for stats\n");
     }
 
@@ -122,32 +113,9 @@ void runTimeStats()
            heapStats.xNumberOfSuccessfulFrees);
 }
 
-void main_task(void *params) 
+void main_task(void *params)
 {
-    if (wifi_init()) {
-        printf("Wifi Controller Initialised\n");
-    } else {
-        printf("Failed to initialise controller\n");
-        return;
-    }
-
-    printf("Connecting to WiFi... %s \n", WIFI_SSID);
-
-    if (wifi_join(WIFI_SSID, WIFI_PASSWORD)) {
-        printf("Connect to Wifi\n");
-    } else {
-        printf("Failed to connect to Wifi \n");
-    }
-
-    // Print MAC Address
-    char macStr[20];
-    wifi_getMACAddressStr(macStr);
-    printf("MAC ADDRESS: %s\n", macStr);
-
-    // Print IP Address
-    char ipStr[20];
-    wifi_getIPAddressStr(ipStr);
-    printf("IP ADDRESS: %s\n", ipStr);
+    MQTTThing thing;
 
     // Setup for MQTT Connection
     char mqttTarget[] = MQTT_HOST;
@@ -156,87 +124,48 @@ void main_task(void *params)
     char mqttUser[] = MQTT_USER;
     char mqttPwd[] = MQTT_PASSWD;
 
-    MQTTAgent mqttAgent;
+    if (!mqttthing_init(&thing, WIFISSID, WIFIPASSWORD, MQTTHOST, MQTTPORT, MQTTUSER, MQTTPASSWD))
+    {
+        LogError(("Failed to initialize MQTTThing\n"));
+        return;
+    }
+    mqttthing_connectLoop(&thing);
 
-    MQTTAgentObserver mqttObs = {0};
-    // Store main task handle for further notifications
-    mqttObs.context = (void*) xTaskGetCurrentTaskHandle();
-    mqttObs.MQTTOffline = MQTTOfflineCallback;
-    mqttObs.MQTTOnline = MQTTOnlineCallback;
-    mqttObs.MQTTIncomingPublish = MQTTIncomingCallback;
-    mqttagent_setObserver(&mqttAgent, &mqttObs);
-    mqttagent_setData(&mqttAgent, mqttUser, mqttPwd, mqttClient, WILLTOPIC, WILLPAYLOAD);
-    printf("Connecting to: %s(%d)\n", mqttTarget, mqttPort);
-    printf("Client id: %.4s...\n", mqttagent_getId(&mqttAgent));
-    printf("User id: %.4s...\n", mqttUser);
+    vTaskDelay(pdTICKS_TO_MS(20000U));
+    char topic_buffer[30] = {0};
+    char payload_buffer[5] = {0};
 
-    mqttagent_connect(&mqttAgent, mqttTarget, mqttPort, true);
-    mqttagent_start(&mqttAgent, TASK_PRIORITY);
+    TickType_t lastTimestamp = pdTICKS_TO_MS(xTaskGetTickCount());
 
-
-    char test_topic[] = "TEST_TOPIC/TEST";
-    char payload[] = "testpayload";
-    TickType_t lastTimestamp = pdTICKS_TO_MS( xTaskGetTickCount() );
-    TickType_t ttlTimestamp = lastTimestamp;
-    while (true) {
-       //runTimeStats();
-        printf("Publishing to %s, payload %s\n", test_topic, payload);
-
-        mqttagent_mqttPublish(&mqttAgent, test_topic, payload);
-                printf("Publishing to %s, payload %s\n", test_topic, payload);
-
-        mqttagent_mqttPublish(&mqttAgent, test_topic, payload);
-                printf("Publishing to %s, payload %s\n", test_topic, payload);
-
-        mqttagent_mqttPublish(&mqttAgent, test_topic, payload);
-
-
-
-        vTaskDelay( pdMS_TO_TICKS( 5000U ) );
-  
-        if (mqttagent_getConnectionState(&mqttAgent) == Online)
+    while (true)
+    {
+        runTimeStats();
+        if (!subscribeDone)
         {
-                TickType_t currentTime = pdTICKS_TO_MS( xTaskGetTickCount() );
-
-                if (!subscribeDone)
-                {
-                        printf("Subscribe to %s\n", test_topic);
-                        mqttagent_mqttSubscribe(&mqttAgent, test_topic);
-                        subscribeDone = true;
-                        ttlTimestamp = currentTime;   
-                }
-                else
-                {
-                    if ((currentTime - lastTimestamp) > TEST_PUBLISH_FREQUENCY)
-                    {
-                        printf("Publishing to %s, payload %s\n", test_topic, payload);
-                        mqttagent_mqttPublish(&mqttAgent, test_topic, payload);
-                        lastTimestamp = currentTime;
-                        ttlTimestamp = currentTime;
-                    }
-                }
-                // Check if we need to send keepalive ping
-                if ((currentTime - ttlTimestamp) > (MQTTKEEPALIVETIME * 1000 / 2))
-                {
-                    printf("Sending keepalive ping after %d ms of idling\n", currentTime - ttlTimestamp);
-                    mqttagent_mqttPing(&mqttAgent);
-                    ttlTimestamp = currentTime;
-                }    
+            sprintf(topic_buffer,"%s","SENSOR/TEMPERATURE/#");
+            printf("Subscribe to %s\n", topic_buffer);
+            mqttthing_subscribe(&thing, topic_buffer, incomingPublish);
+            subscribeDone = true;
         }
-      
-        if (!wifi_isJoined()) {
-            printf("AP Link is down\n");
+        else
+        {
+            TickType_t currentTime = pdTICKS_TO_MS(xTaskGetTickCount());
 
-            if (wifi_join(WIFI_SSID, WIFI_PASSWORD)) {
-                printf("Connect to Wifi\n");
-            } else {
-                printf("Failed to connect to Wifi \n");
+            if ((currentTime - lastTimestamp) > TEST_PUBLISH_FREQUENCY)
+            {
+                sprintf(payload_buffer, "%d", 200);
+                sprintf(topic_buffer, "%s", "SENSOR/TEMPERATURE");
+                printf("Publishing to %s, payload %s\n", topic_buffer, payload_buffer);
+                mqttthing_publish(&thing, topic_buffer, payload_buffer);
+                lastTimestamp = currentTime;
             }
         }
+        vTaskDelay(pdTICKS_TO_MS(2000U));
     }
 }
 
-void vLaunch(void) {
+void vLaunch(void)
+{
     TaskHandle_t task;
 
     xTaskCreate(main_task, "MainThread", 2048, NULL, TASK_PRIORITY, &task);
@@ -245,24 +174,21 @@ void vLaunch(void) {
     vTaskStartScheduler();
 }
 
-int main(void) 
+int main(void)
 {
     timer_hw->dbgpause = 0; // hack!
     stdio_init_all();
 
     sleep_ms(1000);
-    
-    
 
     /* Configure the hardware ready to run the demo. */
-    
+
     const char *rtos_name;
     rtos_name = "FreeRTOS";
     printf("Starting %s on core 0:\n", rtos_name);
     sleep_ms(1000);
 
     vLaunch();
-
 
     return 0;
 }

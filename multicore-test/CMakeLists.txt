@@ -1,14 +1,14 @@
 add_executable(
-        mqtt-test 
+        mqtt-multicore-test 
         main.c
         )
-target_include_directories(mqtt-test   
+target_include_directories(mqtt-multicore-test   
         PRIVATE ${CMAKE_CURRENT_LIST_DIR}
         PRIVATE ${CMAKE_CURRENT_LIST_DIR}/src
         )
 
 # pull in common dependencies
-target_link_libraries(mqtt-test 
+target_link_libraries(mqtt-multicore-test 
         pico-simple-mqtt
         pico_stdlib                        # for core pico functionality
         #pico_cyw43_arch_lwip_sys_freertos  # Wifi with FreeRTOS
@@ -24,7 +24,7 @@ target_link_libraries(mqtt-test
 include(creds/device.cmake)
 
  #Compile definitions needed by the project
- target_compile_definitions(mqtt-test PRIVATE
+ target_compile_definitions(mqtt-multicore-test PRIVATE
     WIFI_SSID=\"${WIFI_SSID_SET}\"
     WIFI_PASSWORD=\"${WIFI_PASSWORD_SET}\"
     MQTT_CLIENT=\"${MQTT_CLIENT_SET}\"
@@ -36,9 +36,9 @@ include(creds/device.cmake)
 
         
 # Enable print functionality on usb & disable on uart
-pico_enable_stdio_usb(mqtt-test 0) 
-pico_enable_stdio_uart(mqtt-test 1)
+pico_enable_stdio_usb(mqtt-multicore-test 0) 
+pico_enable_stdio_uart(mqtt-multicore-test 1)
 
 # create map/bin/hex file etc.
-pico_add_extra_outputs(mqtt-test)
+pico_add_extra_outputs(mqtt-multicore-test)
 

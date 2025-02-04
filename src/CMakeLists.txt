@@ -3,6 +3,7 @@ add_library(pico-simple-mqtt
         tcptransport.c
         mqttagent.c
         mqtttask.c
+        mqttthing.c
         topichelper.c
         #main.c
         )

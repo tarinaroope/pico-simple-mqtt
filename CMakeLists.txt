@@ -42,3 +42,4 @@ include(FreeRTOS_core_MQTT_Agent.cmake) # Configure FreeRTOS coreMQTT Agent
 
 add_subdirectory(src) # Source code dir
 add_subdirectory(test)
+add_subdirectory(multicore-test)

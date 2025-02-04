@@ -67,7 +67,7 @@
      * @param password - Password for network
      * @return true if successful
      */
-     bool wifi_join(const char *sid, const char *password);
+     bool wifi_join(const char *sid, const char *password, bool noGiveUp);
 
     /***
      * Returns if joined to the network and we have a link
