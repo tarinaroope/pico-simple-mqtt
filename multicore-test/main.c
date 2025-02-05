@@ -49,7 +49,7 @@ const char *MQTTHOST = MQTT_HOST;
 const int MQTTPORT = MQTT_PORT;
 const char *MQTTUSER = MQTT_USER;
 const char *MQTTPASSWD = MQTT_PASSWD;
-const char *TOPICROOT = "SENSOR";
+const char *TOPICROOT = "SENSO";
 const char *TOPICTEMPERATURE = "TEMPERATURE";
 
 typedef struct
@@ -59,6 +59,18 @@ typedef struct
 } queue_entry_t;
 
 queue_t message_queue;
+
+void connectCallback(bool online)
+{
+    if (!online)
+    {
+        printf("Disconnected from MQTT broker\n");
+    }
+    else
+    {
+        printf("Connected to MQTT broker\n");
+    }
+}
 
 void runTimeStats()
 {
@@ -128,7 +140,7 @@ void main_task(void *params)
         return;
     }
 
-    mqttthing_connectLoop(&thing);
+    mqttthing_connectLoop(&thing, connectCallback);
 
     char topicBuffer[40];
     char payloadBuffer[10];

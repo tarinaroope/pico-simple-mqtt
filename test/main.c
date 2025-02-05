@@ -47,7 +47,7 @@ const char *MQTTHOST = MQTT_HOST;
 const int MQTTPORT = MQTT_PORT;
 const char *MQTTUSER = MQTT_USER;
 const char *MQTTPASSWD = MQTT_PASSWD;
-const char *TOPICROOT = "SENSOR";
+const char *TOPICROOT = "SENSO";
 const char *TOPICTEMPERATURE = "TEMPERATURE";
 
 volatile bool subscribeDone = false;
@@ -60,6 +60,18 @@ void incomingPublish (const char* topic,
                                 size_t payload_length)
 {
     printf("Incoming publish %.*s:%.*s\n", topic_length, topic, payload_length, payload);
+}
+
+void connectCallback(bool online)
+{
+    if (!online)
+    {
+        printf("Disconnected from MQTT broker\n");
+    }
+    else
+    {
+        printf("Connected to MQTT broker\n");
+    }
 }
 
 void runTimeStats()
@@ -129,7 +141,7 @@ void main_task(void *params)
         LogError(("Failed to initialize MQTTThing\n"));
         return;
     }
-    mqttthing_connectLoop(&thing);
+    mqttthing_connectLoop(&thing, connectCallback);
 
     vTaskDelay(pdTICKS_TO_MS(20000U));
     char topic_buffer[30] = {0};

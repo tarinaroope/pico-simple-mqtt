@@ -28,6 +28,7 @@ typedef struct
     TickType_t lastMessageTimestamp;
     SemaphoreHandle_t mutex;
 
+    void (*connectCallback)(bool online);
     void (*subscribeCallback)(const char* topic, 
                                 size_t topic_length, 
                                 const char* payload, 
@@ -44,8 +45,7 @@ bool mqttthing_init(
                     const char* mqtt_passwd
                     );
 
-void mqttthing_connectLoop(MQTTThing* self);
-//void mqttthing_publish(MQTTThing* self, PublishMessage* message);
+void mqttthing_connectLoop(MQTTThing* self, void (*callback)(bool online));
 void mqttthing_publish(MQTTThing* self, char* topic, char* payload);
 void mqttthing_subscribe(MQTTThing* self, char* topic, void (*callback)());
 void mqttthing_destroy(MQTTThing* self);

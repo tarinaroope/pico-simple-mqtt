@@ -7,19 +7,25 @@
 
 static void MQTTOfflineCallback(void *context)
 {
-    printf("Offline callback called\n");
+    MQTTThing* self = (MQTTThing*) context;
+    if (self->connectCallback)
+    {
+        self->connectCallback(false);
+    }
 }
 
 static void MQTTOnlineCallback(void *context)
 {
-    printf("Online callback called\n");
     MQTTThing* self = (MQTTThing*) context;
 
     // Update the last message timestamp to ensure we send a keepalive ping
     xSemaphoreTake(self->mutex, portMAX_DELAY);
-   // printf("maa");
     self->lastMessageTimestamp = pdTICKS_TO_MS(xTaskGetTickCount());
     xSemaphoreGive(self->mutex);
+    if (self->connectCallback)
+    {
+        self->connectCallback(true);
+    }
 }
 
 static void MQTTIncomingCallback(   void *context,
@@ -106,8 +112,12 @@ static void mqttthing_vTaskConnectLoop(void *params)
     }
 }
 
-void mqttthing_connectLoop(MQTTThing* self)
+void mqttthing_connectLoop(MQTTThing* self, void (*callback)(bool online))
 {  
+    if (callback)
+    {
+        self->connectCallback = callback;
+    }
     xTaskCreate(
         mqttthing_vTaskConnectLoop,
         "MQTTThing_Main",
