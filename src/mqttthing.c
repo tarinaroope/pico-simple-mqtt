@@ -26,6 +26,8 @@ static void MQTTOnlineCallback(void *context)
     {
         self->connectCallback(true);
     }
+    // Finally let others know we are online. Not sure if we could directly publish here... Feels safer this way
+    self->statusUpdateNeeded = true;
 }
 
 static void MQTTIncomingCallback(   void *context,
@@ -67,15 +69,13 @@ static void mqttthing_vTaskConnectLoop(void *params)
     self->mqttObs.MQTTIncomingPublish = MQTTIncomingCallback;
     self->mqttObs.context = self;
     mqttagent_setObserver(&self->mqttAgent, &self->mqttObs);
-    sprintf(self->topicBuffer, "%s/%s", self->macStr, TOPICSTATUS);
-    char willpayload[2];
-    sprintf(willpayload, "%d", 0);
+    sprintf(self->topicBuffer, "%s/%s/%s", self->macStr, self->topicRoot, TOPICSTATUS);
     mqttagent_setData(&self->mqttAgent, 
                         self->mqtt_user, 
                         self->mqtt_passwd, 
                         self->macStr, 
                         self->topicBuffer, 
-                        willpayload);
+                        "offline");
    
     LogDebug(("Connecting to: %s(%d)\n", self->mqtt_host, self->mqtt_port));
     LogDebug(("Client id: %.4s...\n", mqttagent_getId(&self->mqttAgent)));
@@ -88,6 +88,14 @@ static void mqttthing_vTaskConnectLoop(void *params)
     {
         if (mqttagent_getConnectionState(&self->mqttAgent) == Online)
         {
+            // See if we need to publish our status
+            if (self->statusUpdateNeeded)
+            {
+                sprintf(self->topicBuffer, "%s/%s/%s", self->macStr, self->topicRoot, TOPICSTATUS);
+                mqttagent_mqttPublish(&self->mqttAgent, self->topicBuffer, "online");
+                self->statusUpdateNeeded = false;
+            }
+
             // Check if we need to send keepalive ping
             TickType_t currentTime = pdTICKS_TO_MS(xTaskGetTickCount());
             xSemaphoreTake(self->mutex, portMAX_DELAY);
@@ -109,6 +117,8 @@ static void mqttthing_vTaskConnectLoop(void *params)
             LogError(("AP Link is down\n"));
             wifi_join(self->ssid, self->password, true);
         }
+        vTaskDelay(pdTICKS_TO_MS(1000U));
+
     }
 }
 
@@ -129,7 +139,7 @@ void mqttthing_connectLoop(MQTTThing* self, void (*callback)(bool online))
 
 void mqttthing_publish(MQTTThing* self, char* topic, char* payload)
 {
-    sprintf(self->topicBuffer, "%s/%s", self->macStr, topic); // copy to
+    sprintf(self->topicBuffer, "%s/%s/%s", self->macStr, self->topicRoot, topic);
     mqttagent_mqttPublish(&self->mqttAgent, self->topicBuffer, payload);
     
     xSemaphoreTake(self->mutex, portMAX_DELAY);
@@ -140,7 +150,7 @@ void mqttthing_publish(MQTTThing* self, char* topic, char* payload)
 void mqttthing_subscribe(MQTTThing* self, char* topic, void (*callback)())
 {
     self->subscribeCallback = callback;
-    sprintf(self->topicBuffer, "%s/%s", self->macStr, topic); // copy to
+    sprintf(self->topicBuffer, "%s/%s/%s", self->macStr, self->topicRoot, topic); // copy to
     mqttagent_mqttSubscribe(&self->mqttAgent, self->topicBuffer);
     xSemaphoreTake(self->mutex, portMAX_DELAY);
     self->lastMessageTimestamp = pdTICKS_TO_MS(xTaskGetTickCount());
@@ -155,7 +165,8 @@ bool mqttthing_init(
                     const char* mqtt_host,
                     const int mqtt_port,
                     const char* mqtt_user,
-                    const char* mqtt_passwd
+                    const char* mqtt_passwd,
+                    const char* topicRoot
                     )
 
 {
@@ -186,6 +197,7 @@ bool mqttthing_init(
     strcpy(self->mqtt_host, mqtt_host);
     strcpy(self->mqtt_user, mqtt_user);
     strcpy(self->mqtt_passwd, mqtt_passwd);
+    strcpy(self->topicRoot, topicRoot);
 
     return true;
 }

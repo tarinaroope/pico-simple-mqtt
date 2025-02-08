@@ -7,6 +7,7 @@
 
 #define TOPICSTATUS "STATUS"
 #define MAXTOPICLEN 64
+#define MAXTOPICROOTLEN 20
 
 
 typedef struct  
@@ -18,6 +19,7 @@ typedef struct
     char* mqtt_user;
     char* mqtt_passwd;
     char topicBuffer[MAXTOPICLEN];
+    char topicRoot[MAXTOPICROOTLEN];
     char macStr[20];
 
     MQTTAgent mqttAgent;
@@ -27,6 +29,8 @@ typedef struct
 
     TickType_t lastMessageTimestamp;
     SemaphoreHandle_t mutex;
+
+    bool statusUpdateNeeded;
 
     void (*connectCallback)(bool online);
     void (*subscribeCallback)(const char* topic, 
@@ -42,7 +46,8 @@ bool mqttthing_init(
                     const char* mqtt_host,
                     const int mqtt_port,
                     const char* mqtt_user,
-                    const char* mqtt_passwd
+                    const char* mqtt_passwd,
+                    const char* topicRoot
                     );
 
 void mqttthing_connectLoop(MQTTThing* self, void (*callback)(bool online));

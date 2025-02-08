@@ -40,15 +40,8 @@
 #endif
 
 #define TEST_PUBLISH_FREQUENCY 5000 // ms
-
-const char *WIFISSID = WIFI_SSID;
-const char *WIFIPASSWORD = WIFI_PASSWORD;
-const char *MQTTHOST = MQTT_HOST;
-const int MQTTPORT = MQTT_PORT;
-const char *MQTTUSER = MQTT_USER;
-const char *MQTTPASSWD = MQTT_PASSWD;
-const char *TOPICROOT = "SENSO";
-const char *TOPICTEMPERATURE = "TEMPERATURE";
+#define TOPICROOT "TESTROOT"
+#define TOPICTEST "TESTTEMP"
 
 volatile bool subscribeDone = false;
 
@@ -129,14 +122,7 @@ void main_task(void *params)
 {
     MQTTThing thing;
 
-    // Setup for MQTT Connection
-    char mqttTarget[] = MQTT_HOST;
-    int mqttPort = MQTT_PORT;
-    char mqttClient[] = MQTT_CLIENT;
-    char mqttUser[] = MQTT_USER;
-    char mqttPwd[] = MQTT_PASSWD;
-
-    if (!mqttthing_init(&thing, WIFISSID, WIFIPASSWORD, MQTTHOST, MQTTPORT, MQTTUSER, MQTTPASSWD))
+    if (!mqttthing_init(&thing, WIFI_SSID, WIFI_PASSWORD, MQTT_HOST, MQTT_PORT, MQTT_USER, MQTT_PASSWD, TOPICROOT))
     {
         LogError(("Failed to initialize MQTTThing\n"));
         return;
@@ -144,8 +130,7 @@ void main_task(void *params)
     mqttthing_connectLoop(&thing, connectCallback);
 
     vTaskDelay(pdTICKS_TO_MS(20000U));
-    char topic_buffer[30] = {0};
-    char payload_buffer[5] = {0};
+   // char topic_buffer[30] = {0};
 
     TickType_t lastTimestamp = pdTICKS_TO_MS(xTaskGetTickCount());
 
@@ -154,9 +139,10 @@ void main_task(void *params)
         runTimeStats();
         if (!subscribeDone)
         {
-            sprintf(topic_buffer,"%s","SENSOR/TEMPERATURE/#");
-            printf("Subscribe to %s\n", topic_buffer);
-            mqttthing_subscribe(&thing, topic_buffer, incomingPublish);
+            char subscribeTopic[20] = {0};
+            sprintf(subscribeTopic,"%s/#", TOPICTEST);
+            printf("Subscribe to %s\n", subscribeTopic);
+            mqttthing_subscribe(&thing, subscribeTopic, incomingPublish);
             subscribeDone = true;
         }
         else
@@ -165,10 +151,9 @@ void main_task(void *params)
 
             if ((currentTime - lastTimestamp) > TEST_PUBLISH_FREQUENCY)
             {
-                sprintf(payload_buffer, "%d", 200);
-                sprintf(topic_buffer, "%s", "SENSOR/TEMPERATURE");
-                printf("Publishing to %s, payload %s\n", topic_buffer, payload_buffer);
-                mqttthing_publish(&thing, topic_buffer, payload_buffer);
+                //sprintf(topic_buffer, "%s", "SENSOR/TEMPERATURE");
+                printf("Publishing to %s, payload %s\n", TOPICTEST, "29");
+                mqttthing_publish(&thing, TOPICTEST, "29");
                 lastTimestamp = currentTime;
             }
         }

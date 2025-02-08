@@ -41,16 +41,10 @@
 
 #define TEST_PUBLISH_FREQUENCY 5000 // ms
 
-#define TASK_PRIORITY (tskIDLE_PRIORITY + 1UL)
+#define TOPICROOT "TESTROOT"
+#define TOPICTEST "TESTTEMP"
 
-const char *WIFISSID = WIFI_SSID;
-const char *WIFIPASSWORD = WIFI_PASSWORD;
-const char *MQTTHOST = MQTT_HOST;
-const int MQTTPORT = MQTT_PORT;
-const char *MQTTUSER = MQTT_USER;
-const char *MQTTPASSWD = MQTT_PASSWD;
-const char *TOPICROOT = "SENSO";
-const char *TOPICTEMPERATURE = "TEMPERATURE";
+#define TASK_PRIORITY (tskIDLE_PRIORITY + 1UL)
 
 typedef struct
 {
@@ -127,14 +121,7 @@ void main_task(void *params)
 {
     MQTTThing thing;
 
-     // Setup for MQTT Connection
-    char mqttTarget[] = MQTT_HOST;
-    int mqttPort = MQTT_PORT;
-    char mqttClient[] = MQTT_CLIENT;
-    char mqttUser[] = MQTT_USER;
-    char mqttPwd[] = MQTT_PASSWD;
-
-    if (!mqttthing_init(&thing, WIFISSID, WIFIPASSWORD, MQTTHOST, MQTTPORT, MQTTUSER, MQTTPASSWD))
+    if (!mqttthing_init(&thing, WIFI_SSID, WIFI_PASSWORD, MQTT_HOST, MQTT_PORT, MQTT_USER, MQTT_PASSWD, TOPICROOT))
     {
         LogError(("Failed to initialize MQTTThing\n"));
         return;
@@ -142,7 +129,7 @@ void main_task(void *params)
 
     mqttthing_connectLoop(&thing, connectCallback);
 
-    char topicBuffer[40];
+    char topicBuffer[30];
     char payloadBuffer[10];
     queue_entry_t entry = {0};
     int i = 0;
@@ -155,7 +142,7 @@ void main_task(void *params)
         }
         if (queue_try_remove(&message_queue, &entry))
         {
-            sprintf(topicBuffer, "%s/%s/%d", TOPICROOT, TOPICTEMPERATURE, entry.sensorId);
+            sprintf(topicBuffer, "%s/%d", TOPICTEST, entry.sensorId);
             sprintf(payloadBuffer, "%d", entry.sensorValue);
             printf("Publishing to %s, payload %s\n", topicBuffer, payloadBuffer);
             mqttthing_publish(&thing, topicBuffer, payloadBuffer);

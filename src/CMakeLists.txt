@@ -4,7 +4,7 @@ add_library(pico-simple-mqtt
         mqttagent.c
         mqtttask.c
         mqttthing.c
-        topichelper.c
+       # topichelper.c
         #main.c
         )
 target_include_directories(pico-simple-mqtt
